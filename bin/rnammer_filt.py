@@ -9,7 +9,7 @@ Usage:
 
 Options:
   -             fasta provided via STDIN.
-  -s=<score>    rnammer score [default: 0].
+  -s=<score>    rnammer score cutoff [default: 0].
   -h --help     Show this screen.
   --version     Show version.
 Arguments:
