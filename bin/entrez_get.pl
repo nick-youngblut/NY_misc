@@ -294,8 +294,6 @@ sub filter_entries{
   # querying
   my $ret = $dbh->selectall_hashref($cmd, 'sample_accession') or die $dbh->err;
 
-
-
   
   # filtering entries
   ## status: pre-filter
