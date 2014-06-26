@@ -26,6 +26,19 @@ SRAmetadb file (from SRAdb R package)
 
 =over
 
+=item -sql <sql>
+
+sql statement to get sample accessions. 
+Some form of the sample accession must be returned by query.
+Only the 1st column returned by the query will be used.
+
+Default: sql.default
+
+=for Euclid:
+sql.type: string
+sql.default: 'SELECT distinct(sample_accession) FROM sra_ft WHERE sra_ft MATCH "*soil*metagenom*"'
+
+
 =item -nt <n_threads> | -num_threads <n_threads>
 
 Number of threads to use (0 = no forking).
@@ -76,8 +89,6 @@ files associated with SRA biosamples.
 The info is collected from the ENA at: 
 http://www.ebi.ac.uk/ena/data/view/reports/sra/fastq_file/
 
-This will probably take a few hours to run
-even with 30 threads.
 
 =head1 AUTHOR
 
@@ -95,12 +106,14 @@ This software is licensed under the terms of the GPLv3
 
 =cut
 
+
 #--- modules ---#
 use Data::Dumper;
 use Getopt::Euclid;
 use DBI;
 use Parallel::ForkManager;
 use LWP::Simple;
+use Term::ProgressBar;
 
 #--- I/O error ---#
 
@@ -214,6 +227,10 @@ sub create_fastq_files_table{
   my $dbh = shift or die "Provide dbh\n";
   my $argv_r = shift;
 
+  # status
+  print STDERR "Creating a new 'fastq_files' table\n"
+    unless $argv_r->{'--quiet'};
+
   # dropping table if exists
   my $sql = "DROP TABLE IF EXISTS fastq_files";
   $dbh->do($sql) or die $dbh->err;
@@ -274,6 +291,9 @@ sub get_fastq_ftp{
   my $samp_acc_r = shift or die "Provide samp_acc_r\n";
   my $argv_r = shift;
 
+  # status
+  print STDERR "Getting info from ENA\n" unless $argv_r->{'--quiet'};
+
   # forking initilize
   my $pm = Parallel::ForkManager->new($argv_r->{-num_threads});
 
@@ -290,12 +310,17 @@ sub get_fastq_ftp{
 		     }
 		    );
 
-  my $cnt = 0;  # debug
+  # status
+  my $prog = Term::ProgressBar->new(scalar @$samp_acc_r);
+  $prog->minor(0);
+
+  my ($cnt, $next_update) = (0,0);  # status
   foreach my $samp_acc (@$samp_acc_r){
     # status
     $cnt++;
-    print STDERR "Number of sample accessions processed: $cnt\n"
-      if $cnt % 100 == 0 and ! $argv_r->{'--quiet'};    
+    $next_update = $prog->update($cnt) if $cnt > $next_update;
+#    print STDERR "Number of sample accessions processed: $cnt\n"
+#      if $cnt % 100 == 0 and ! $argv_r->{'--quiet'};    
    # last if $cnt >= 2000;   # debug
 
     # forking start
@@ -304,7 +329,7 @@ sub get_fastq_ftp{
     my $site = join("/", "http://www.ebi.ac.uk/ena/data/view/reports/sra/fastq_files",
 		    $samp_acc->[0]);
     my $text = get $site; 
-    open  IN, '<', \$text or die $!;
+    open IN, '<', \$text or die $!;
 
     my @header;
     my %ret;
@@ -326,8 +351,8 @@ sub get_fastq_ftp{
 	}	
       }
     }
-
-
+    close IN or die $!;
+    
     # forking end
     $pm->finish(0, \%ret );
   }
@@ -350,16 +375,20 @@ sub get_db_samp_acc{
   my $dbh = shift or die "Provide dbh\n";
   my $argv_r = shift;
 
-  my $sql = <<HERE;
-SELECT distinct(sample_accession)
-from sample
-HERE
 
+  my $sql = $argv_r->{-sql};
+
+  # debug
+#  $sql .= " limit 200";
+
+  # query
+  print STDERR "sql: '$sql'\n\n" unless $argv_r->{'--quiet'};
   my $ret = $dbh->selectall_arrayref($sql) or die $dbh->err;
 
   # status
-  printf STDERR "Number of sample accessions to query: %i\n",
+  printf STDERR "Number of sample accessions to query: %i\n\n",
     scalar @$ret;
+
 
   return $ret;
 }
