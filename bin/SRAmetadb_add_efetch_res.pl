@@ -50,6 +50,23 @@ n_threads.type: int >= 0
 n_threads.default: 0
 
 
+=item -ma <max_attributes> | -max_attributes <max_attributes>
+
+Max number of attributes allowed in an entry (skipped otherwise). 
+This limits the number of fields created in the efetch table.
+
+Default: max_attributes.default
+
+=for Euclid:
+max_attributes.type: int >= 0
+max_attributes.default: 15
+
+
+=item --lat_long_edit
+
+Try to get latitude and longitude values into decimal format
+and into their corresponding fields.
+
 =item --keep
 
 Keep 'fastq_files' table if exists and append entries to the existing table.
@@ -115,6 +132,7 @@ use Parallel::ForkManager;
 use Term::ProgressBar;
 use Text::ParseWords;
 use Regexp::Common;
+use Text::Unidecode;
 
 #--- I/O error ---#
 
@@ -146,7 +164,6 @@ if(! (grep /"main"\."efetch"/, @tables)
   ## creating efetch table and deleting old one
   create_efetch_table($dbh, $fields_r, \%ARGV);
 }
-
 
 
 ## addng efetch entries to db
@@ -243,8 +260,8 @@ sub create_efetch_table{
 
   # creating new table
   my @columns;
-  while( my ($k,$v) = each %$fields_r){
-    push @columns, join("\t", $k, $v);
+  foreach my $k (sort keys %$fields_r){
+    push @columns, join("\t", $k, $fields_r->{$k});
   }
 
   $sql = join("\n", 
@@ -253,7 +270,7 @@ sub create_efetch_table{
 	      ")");
 
 
-  $dbh->do($sql) or die $dbh->err;
+  $dbh->do($sql) or die "ERROR: could not create table:\n$sql\n";
 
 
   # creating index
@@ -292,7 +309,14 @@ sub get_all_needed_fields{
     foreach my $entry_id (keys %{$tbl_r->{$samp_acc}}){
       $fields{entry_id} = 'NUM';
 
+      
+      # skipping if number of attributes exceeds max
+      next if scalar keys %{$tbl_r->{$samp_acc}{$entry_id}}
+	> $argv_r->{-max_attributes};
+
+      # getting entry
       foreach my $cat (keys %{$tbl_r->{$samp_acc}{$entry_id}} ){
+	next if $cat =~ /^\s*$/;
 	unless(exists $fields{$cat}){
 	  # is field text or numeric?
 	  $fields{$cat} = $cat =~ /%RE{num}{real}/ ? 'NUM' : 'TEXT';
@@ -304,15 +328,12 @@ sub get_all_needed_fields{
   # filtering fields
   foreach my $field (keys %fields){
     delete $fields{$field} if
-      $field =~ /^[atgc]+$/;
+      $field =~ /^[atgc]+$/ or
+	$field =~ /.+_tag_primer_sequences$/;	
   }
 
-  # combining repetitive fields
-  my %same_fields;   # index of which are the same {current_field : combined_field}
-  ##---  skiping for now ---##
 
-
-#  print Dumper %fields;
+#  print Dumper %fields; exit;
 #  print Dumper %$tbl_r; exit;
   return \%fields;
 }
@@ -340,8 +361,10 @@ sub esearch_efetch{
                        my ($pid, $exit_code,
                            $ident, $exit_signal,
                            $core_dump, $ret_r) = @_;
-		       
-		       $tbl{ $ret_r->[0] } = $ret_r->[1];
+
+		       if(defined $ret_r->[0] and defined $ret_r->[1]){			 
+			 $tbl{ $ret_r->[0] } = $ret_r->[1];
+		       }
                      }
                     );
 
@@ -356,6 +379,9 @@ sub esearch_efetch{
   foreach my $samp_acc (@$samp_acc_r){
     $cnt++;
     $next_update = $prog->update($cnt) if $cnt > $next_update;
+
+    # sanity check
+    next unless defined $samp_acc->[0];
 
     # forking
     $pm->start and next;
@@ -399,6 +425,10 @@ sub call_esearch_efetch{
 
   # parsing output
   my $entries_r = parse_efetch_text($fh_pipe, $argv_r);
+
+  # adding sample accession to each entry
+  map{ $entries_r->{$_}{sample_accession} = $samp_acc } keys %$entries_r;
+
  
   # close/return
   close $fh_pipe or die $!; 
@@ -427,18 +457,14 @@ sub parse_efetch_text{
     if($line =~ /^(\d+): (.+)/){
       $sample_id++;
       $entries{$sample_id}{title} = $2;
-
-      # status
-      #print STDERR "Processed $sample_id samples\n"
-      #  if $sample_id % 100 == 0
-      #    and not exists $argv_r->{'--quiet'};
     }
     # identifiers (nested)
     elsif($line =~ /^Identifiers: (.+)/){
       my %words = quotewords(": ", 0, split / *; */, $1);
       
       foreach my $k (keys %words){
-	(my $cat = $k) =~ tr/A-Z /a-z_/;
+	(my $cat = $k) =~ s/\W/_/g;
+	$cat =~ tr/A-Z/a-z/;
 	$entries{$sample_id}{$cat} = $words{$k};
       }
     }
@@ -452,7 +478,8 @@ sub parse_efetch_text{
       }
 
       foreach my $k (keys %words){
-	(my $cat = $k) =~ tr/A-Z /a-z_/;
+	(my $cat = $k) =~ s/\W/_/g;
+	$cat =~ tr/A-Z/a-z/;
 	$entries{$sample_id}{$cat} = $words{$k};
       }
     }
@@ -465,8 +492,23 @@ sub parse_efetch_text{
       my %words = quotewords("=", 0, $1);
 
       foreach my $k (keys %words){
-	(my $cat = $k) =~ tr/A-Z /a-z_/;
-	$entries{$sample_id}{$cat} = $words{$k};
+	(my $cat = $k) =~ s/\W/_/g;
+	$cat =~ tr/A-Z/a-z/;
+	
+	# combining certain attributes (reducing repetitive fields)
+	($cat, $words{$k}) = edit_lat_long($cat, $words{$k})
+	  if $argv_r->{'--lat_long_edit'};
+
+	# adding to entries
+	if(ref $cat eq "ARRAY"){
+	  for my $i (0..$#$cat){
+	    die "Internal error\n" unless defined $words{$k}->[$i];
+	    $entries{$sample_id}{$cat->[$i]} = $words{$k}->[$i];
+	  }
+	}
+	else{
+	  $entries{$sample_id}{$cat} = $words{$k};
+	}
       }
     }
     # skip blank lines and any others
@@ -478,9 +520,132 @@ sub parse_efetch_text{
     last if $argv_r->{'--debug'} and scalar keys %entries >= 300;
   }
 
-  #print Dumper %entries; exit;
+#  print Dumper %entries; exit;
   return \%entries;
 }
+
+
+=head2 edit_lat_long
+
+Try to properly format latitude and longitude
+
+=cut
+
+sub edit_lat_long{
+  my $field = shift;
+  my $value = shift;
+
+  return $field, $value unless 
+    defined $field and defined $value;
+
+  # general formating of lat-long values
+  if( $field =~ /latitude/ or $field =~ /longitude/
+      or $field =~ /lat.+long*/ ){
+    $value =~ s/ +[NSEW]//gi;  # removing any directional characters    
+    $value =~ s/ +DD//;
+    
+    # unicode decode
+    $value = unidecode($value);
+
+    # more editing
+    $value =~ s/[)']+$//g if defined $value;
+
+    # if nothing return 
+    return $value unless defined $value;        
+  }
+  
+  # latitude and longitude
+  if( $field =~ /latitude.+longitude/ or
+      $field =~ /lat_+long*/ ){
+    $value =~ s/^\s+//;
+    $value =~ s/\s+$//;
+
+    # split to lat & long
+    my @tmp = split /\s*[ _,]\s*/, $value;
+
+    # conversion if needed
+    @tmp = map{ DMS_to_decimal($_) } @tmp;
+    map{ s/.*?(-*[\d.]+).*/$1/ } @tmp;
+
+    # return
+    if(scalar @tmp == 2){   # if correctly split lat-long
+      return ['latitude', 'longitude'], \@tmp; 
+    }
+    else{
+      return $field, $value;
+    }
+  }
+  elsif( $field =~ /latitude/ ){
+    # conversion if needed
+    $value = DMS_to_decimal($value);
+    $value =~ s/.*?(-*[\d.]+).*/$1/;
+
+    return 'latitude', $value;
+  }
+  elsif( $field =~ /longitude/ ){
+    # conversion if needed
+    $value = DMS_to_decimal($value);
+    $value =~ s/.*?(-*[\d.]+).*/$1/;
+
+    return 'longitude', $value;
+  }
+}
+
+
+=head2 DMS_to_decimal
+
+converting lat-long from degree-min-sec to decimal
+
+=cut
+
+sub DMS_to_decimal{
+  my $value = shift or die "Provide lat-long, lat, or long string\n";
+
+  # return if already in decimal format
+  return $value if $value =~ /[\d.]+/;  
+
+#  my $test = "19°25<U+0092>|85°04<U+0092>";
+#  my $test2 = "50°56′02″"; 
+#  $test = unidecode($test);
+#  $test2 = unidecode($test2); 
+#  print Dumper $test, $test2; exit;
+#  $value = $test2;
+
+  # initialize
+  my $degree;
+  my ($min,$sec) = (0,0);
+
+  # degree
+  if( $value =~ /(\d+)A*deg/ ){
+    $degree = $1;
+  }
+  else{   # can't find degree, returning value
+    return $value;
+  }
+
+  # min
+  if($value =~ /(\d+)a2/){
+    $min = $1;
+  }
+  elsif($value =~ /deg(\d+)/){   # assuming numeric after degree is min
+    $min = $1;
+  }
+
+  # sec
+  if($value =~ /(\d+)a3/){
+    $sec = $1;
+  }
+  elsif($value =~ /a2(\d+)/){   # assumning numeric after min is sec
+    $sec = $1;   
+  }
+
+  # calc decimal
+  my $dec = $degree + ($min / 60) + ($sec / 3600);
+
+  #print Dumper $dec; exit;
+  return $dec;
+}
+
 
 
 =head2 get_db_samp_acc
@@ -497,7 +662,7 @@ sub get_db_samp_acc{
   my $sql = $argv_r->{-sql};
 
   # debug
-#  $sql .= " limit 500";
+#  $sql .= " limit 100";
 
   # query
   print STDERR "sql: '$sql'\n\n" unless $argv_r->{'--quiet'};
