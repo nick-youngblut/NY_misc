@@ -30,12 +30,21 @@ SRAmetadb file (from SRAdb R package)
 
 sql statement to get lat-long values.
 
-
 Default: sql.default
 
 =for Euclid:
 sql.type: string
 sql.default: 'SELECT sample_accession, latitude_and_longitude, latitude, longitude from efetch'
+
+=item -table <table_name>
+
+The name of the database table to update values.
+
+Default: table_name.default
+
+=for Euclid:
+table_name.type: string
+table_name.default: 'efetch'
 
 
 =item --debug [<log_level>]
@@ -114,11 +123,21 @@ my $entries_r = get_db_entries($dbh, \%ARGV);
 
 # edit latitude and longitude
 ## trying to get all entries in to lat and long fields
+$ARGV{entry_edit_cnt} = 0;
 foreach my $samp_acc (keys %$entries_r){
-  edit_lat_long($entries_r->{$samp_acc});
+  edit_lat_long(
+		$entries_r->{$samp_acc},
+		\%ARGV
+	       );
 }
 
-print Dumper %$entries_r; exit;
+# status
+printf STDERR "Number of lat-long values edited: %i\n",
+  $ARGV{entry_edit_cnt};
+
+# updating entries
+update_db_entries($dbh, $entries_r, \%ARGV );
+
 
 # closing 
 $dbh->commit or die $dbh->err;
@@ -127,6 +146,44 @@ $dbh->disconnect or die $dbh->err;
 
 
 #--- Subroutines ---#
+
+=head2 update_db_entries
+
+Updating db entries. 
+
+=cut
+
+sub update_db_entries{
+  my $dbh = shift or die "Provide dbh\n";
+  my $entries_r = shift or die "Provide hashref of entries\n";
+  my $argv_r = shift;
+
+  my $sql = join(" ", 
+		 "UPDATE ",
+		 $argv_r->{-table},
+		 "SET latitude = ?, longitude = ?",
+		 "WHERE sample_accession = ?");
+
+  my $sth = $dbh->prepare($sql) or die $dbh->err;
+
+
+  # loading entriesq
+  foreach my $samp_acc ( keys %$entries_r ){
+    # bind params
+    $sth->bind_param(1, $entries_r->{$samp_acc}{latitude})
+      or die $dbh->err;
+    $sth->bind_param(2, $entries_r->{$samp_acc}{longitude})
+      or die $dbh->err;
+    $sth->bind_param(3, $entries_r->{$samp_acc}{sample_accession})
+      or die $dbh->err;
+
+    # execute
+    $sth->execute or die $dbh->err;
+  }
+
+  print STDERR "Entry updating complete.\n";
+}
+
 
 
 =head2 edit_lat_long
@@ -137,75 +194,74 @@ Lat-long can include unicode.
 
 =cut
 
-#sub edit_lat_long{
-#  my $entry_r = shift or die "Provide hashref of entry\n";
-#  my $argv_r = shift;#
-
-#}
-
 sub edit_lat_long{
   my $entry_r = shift or die "Provide hashref of entry\n";
   my $argv_r = shift;
 
-  # converting all entries lacking numerics to undef
-#  map{ $entry_r->{$_} = undef
-#	 if (! defined $entry_r->{$_}
-#	 and ! $entry_r->{$_} =~ /\d/) } qw/latitude_and_longitude
-#					   latitude
-#					   longitude/;
+  # debug
+  if($argv_r->{'--debug'}){
+    $entry_r = { 
+		sample_accession => 'TEST',
+#		latitude_and_longitude => '33: 56: 34.0 S; 60: 33: 59.9 W',
+#		latitude_and_longitude => "29Á 2\' 16.332 95Á 16\' 0.948",
+		latitude_and_longitude => "82 N 62 W",
+		latitude => undef,
+		longitude => undef
+	       };
+  }
 
-#  print Dumper %$entry_r; exit;
-
+  
   # defined 
   ## if lat,long defined: trying to get from lat_and_long
   if(defined $entry_r->{latitude_and_longitude} and
      ! defined $entry_r->{latitude} and
      ! defined $entry_r->{longitude} ){
- 
-    # editing lat-long to something split-able
-    ## converting ([NS]:[EW]) real_num:real_num notation
-    #$entry_r->{latitude_and_longitude} =~ s/\(([NS]):([EW])\)\s*($RE{num}{real})[ _:;\/]($RE{num}{real})/$3 $1,$4 $2/;
-    ## adding comma after 'N' or 'S' designation
-    #$entry_r->{latitude_and_longitude} =~ s/([NS](outh|orth)*) +(\d+)/$1, $3/;
+     
+    # value edit
+    ## colons
+    $entry_r->{latitude_and_longitude} =~ s/([NS]):/$1;/;
 
-    # spliting
-    #my @lat_long = split /\s*[:;,_\/]+\s*/, $entry_r->{latitude_and_longitude}, 2;
-
-    ## split apparently successfull
-    # if( scalar @lat_long == 2 ){
-    #   $latitude = interpret_lat_long(
-    # 				     $lat_long[0], 
-    # 				     dir => 'latitude'
-    # 				    );
-    #   $longitude = interpret_lat_long(
-    # 				      $lat_long[1], 
-    # 				      dir => 'longitude'
-    # 				     );      
-    # }
-
-    
-    # regex
     ## (N:W) style
     if( $entry_r->{latitude_and_longitude} =~ 
-	/\(([NS]):([EW])\)\s*(-*$RE{num}{real})[ _:;\/](-*$RE{num}{real})/){
+	/\(([NS]):([EW])\)\s*(-*\d+\.*\d*)[ _:;\/](-*\d+\.*\d*)/){
       $entry_r->{latitude} = join(" ", $3, $1);
       $entry_r->{longitude} = join(" ", $4, $2);
     }
     # simple numeric style
     elsif($entry_r->{latitude_and_longitude} =~ 
-	  /^\D*(-*$RE{num}{real})\D*?([NSns])*[ \t:;,\/]\D*(-*$RE{num}{real})\D*?([NSns])*/){
+	  /^\D*?(-*\d+\.*\d*)\D*?([NSns])*[ \t:;,\/]\D*?(-*\d+\.*\d*)\D*?([NSns])*$/){
+
       my @regex_vals = ($1, $2, $3, $4);
       map{ $_ = '' unless defined $_ } @regex_vals;
       $entry_r->{latitude} = join(" ", @regex_vals[0..1]);
       $entry_r->{longitude} = join(" ", @regex_vals[2..3]);
       }
+
     ## lat-long DMS style
     elsif( $entry_r->{latitude_and_longitude} =~
-	   /\D*(-*$RE{num}{real})\D+(-*$RE{num}{real})(\D+-*$RE{num}{real})*\D*?([NSns])*\s*[ :;_\/]+\s*\D*(-*$RE{num}{real})\D+(-*$RE{num}{real})(\D+-*$RE{num}{real})*\D*?([EWew])*/){
-      my @regex_vals = ($1, $2, $3, $4, $5, $6, $7, $8);
+	   /(\D*?-*[\d.]+)\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*[ :;_\/]\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*?(-*[\d.]+)/ 
+	   or $entry_r->{latitude_and_longitude} =~ 
+	   /(\D*?-*[\d.]+)\D*?(-*[\d.]+)\D*[ :;_\/]\D*?(-*[\d.]+)\D*?(-*[\d.]+)/ 
+	   or $entry_r->{latitude_and_longitude} =~ 
+	   /(\D*?-*[\d.]+)\D*[ :;_\/]\D*?(-*[\d.]+)/ 
+	 ){
+	     
+      # saving regex
+      my @regex_vals = ($1, $2, $3, $4, $5, $6);
+
+      # getting direction
+      my ($lat_dir, $long_dir) = ('','');
+      if( $entry_r->{latitude_and_longitude} =~ /\d\D*([NSns])/ ){
+	$lat_dir = $1;
+      }
+      if( $entry_r->{latitude_and_longitude} =~ /\d\D*([EWew])/ ){
+	$long_dir = $1;
+      }
+
       map{ $_ = '' unless defined $_ } @regex_vals;
-      $entry_r->{latitude} = join(" ", @regex_vals[0..3]);
-      $entry_r->{longitude} = join(" ", @regex_vals[4..7]);
+      $entry_r->{latitude} = join(" ", @regex_vals[0..2], $lat_dir);
+      $entry_r->{longitude} = join(" ", @regex_vals[3..5], $long_dir);
+
     }
     ## undef if entry is not numeric
     elsif( $entry_r->{latitude_and_longitude} =~ /^\D*$/ ){
@@ -218,13 +274,19 @@ sub edit_lat_long{
       $entry_r->{longitude} = undef;
     }
     ## split failed; don't know why
-    else{
-      printf STDERR "ERROR: don't know how to parse lat-long value '%s'\n",
-	 $entry_r->{latitude_and_longitude};
+    else{      
+      printf STDERR "WARNING: don't know how to parse lat-long value '%s' in sample '%s'\n",
+	 $entry_r->{latitude_and_longitude}, $entry_r->{sample_accession};
       die $!;
     }
   }
-  
+
+  # debug split
+  if($argv_r->{'--debug'}){
+    printf STDERR "split-lat: %s\n", $entry_r->{latitude} if defined $entry_r->{latitude};
+    printf STDERR "split-long: %s\n", $entry_r->{longitude} if defined $entry_r->{longitude};
+  }
+
   ## if lat or long defined
   my ($latitude, $longitude);
   if(defined $entry_r->{latitude} or
@@ -263,8 +325,45 @@ sub edit_lat_long{
 
 
   # reassigning lat and long
+  ## counting edits
+  if( ! defined $latitude or ! defined $longitude ){
+    
+  }
+  elsif( (! defined $entry_r->{latitude} and defined $latitude) or
+      (! defined $entry_r->{longitude} and defined $longitude) ){
+    $argv_r->{entry_edit_cnt}++;
+  }
+  elsif( $entry_r->{latitude} ne $latitude or
+	 $entry_r->{longitude} ne $longitude ){
+    $argv_r->{entry_edit_cnt}++;
+  }
+  ## making change
   $entry_r->{latitude} = $latitude;
   $entry_r->{longitude} = $longitude;
+
+
+  # final check of lat-long
+  foreach my $cat (qw/latitude longitude/){
+    next unless defined $entry_r->{$cat};   # skipping undef values
+ 
+    # is decimal?
+    unless($entry_r->{$cat} =~ /^-*\d+\.*\d*$/){
+      printf STDERR "ERROR: $cat value is not in decimal form! Value = '%s'\n",
+	$entry_r->{$cat};
+      exit(1);
+    }
+    # is realistic value?
+    if( $entry_r->{$cat} > 500 ){
+      printf STDERR "WARNING: $cat value does not appear to be correct (Value = '%s'). Making NULL\n",
+	$entry_r->{$cat};
+      $entry_r->{$cat} = undef;
+    }
+  }
+
+  # debug
+  if( $argv_r->{'--debug'} ){
+    print Dumper "final entry: ", $entry_r; exit;
+  }
 }
 
 
@@ -280,26 +379,33 @@ sub interpret_lat_long{
   my $value = shift or die "Provide latitude or longitude value\n";
   my $kwargs = @_;
 
-
   my $decimal;
   # just real number? assumed decimal
-  if($value =~ /^\D*(-*$RE{num}{real})\D*/){
+  if($value =~ /^\D*?(-*\d+\.*\d*)\D*$/){
     $decimal = $1;
   }
   ## decimal with direction?
-  elsif($value =~ /^\D*(-*$RE{num}{real})\D*([NSEWnsew])\D*/){
+  elsif($value =~ /^\D*?(-*\d+\.*\d*)\D*?([NSEWnsew])\D*$/){
     my ($decimal, $dir) = ($1, $2);
     $decimal *= -1 if $dir =~ /[SWsw]/;
   }
   # is DMS format?
-  elsif($value =~ /\D*(-*$RE{num}{real})\D+(-*$RE{num}{real})(\D+-*$RE{num}{real})*\D*([NSWEnswe])*/){
-    my $decimal = DMS_to_decimal($1, $2, $3, $4);
+  elsif($value =~ /\D*?(-*\d+\.*\d*)\D+?(-*\d+\.*\d*)(\D+?-*\d+\.*\d*)*/){
+    my ($degrees, $minutes, $seconds) = ($1, $2, $3);
+    
+    # getting direction if available
+    my $dir;
+    if($value =~ /\d\D*([NSEWnsew])/ ){
+      $dir = $1;
+    }
+    $decimal = DMS_to_decimal($degrees, $minutes, $seconds, $dir);
   }
   # don't know what to do
-  else{
-    die "Don't know how to parse lat or long value: '$value'\n";
+  else{    
+    warn "Don't know how to parse lat or long value: '$value'\n";
   }
 
+#  print Dumper "ret: $decimal"; exit;
   return $decimal;
 }
 
@@ -310,9 +416,8 @@ converting lat-long from degree-min-sec to decimal
 =cut
 
 sub DMS_to_decimal{
-#  map{ die "negative: $_" if $_ =~ /-/ } @_;
-  
-  my $degrees = shift or die "Provide degrees\n";
+  my $degrees = shift;
+  defined $degrees or die "Provide degrees\n";
   my $minutes = shift;
   $minutes = 0 unless defined $minutes;
   my $seconds = shift;
@@ -324,21 +429,19 @@ sub DMS_to_decimal{
   # checking that degrees, minutes, seconds are numeric
   foreach my $x ($degrees, $minutes, $seconds){
     die "ERROR: value '$_' does not contain a real number\n"
-      unless $x =~ /-*$RE{num}{real}/;
-    $x = s/\D*(-*$RE{num}{real})\D*/$1/;
+      unless $x =~ /-*[\d.]+/;
+    $x =~ s/\D*?(-*\d+\.*\d*)\D*/$1/;
   }
+
 
   # calc decimal
   my $decimal = $degrees + ($minutes / 60) + ($seconds / 3600);
 
-  $decimal *= -1 if $direction =~ /^\s*[SWsw]/;
+  $decimal = -$decimal if $direction =~ /^\s*[SWsw]/;
 
-  #print Dumper $decimal; exit;
+#  print Dumper $decimal; exit;
   return $decimal;
 }
-
-
-
 
 
 =head2 find_lat_or_long
@@ -373,8 +476,6 @@ sub find_lat_or_long{
 }
 
 
-
-
 =head2 get_db_entries
 
 Getting entries from SRAmetadb
@@ -385,8 +486,6 @@ sub get_db_entries{
   my $dbh = shift or die "Provide dbh\n";
   my $argv_r = shift;
 
-
-#  print Dumper $argv_r->{-sql};
 
   # getting column names
   my $sth = $dbh->prepare( $argv_r->{-sql} ) or die $dbh->err;
