@@ -108,7 +108,7 @@ use Text::ParseWords;
 use Regexp::Common;
 use Text::Unidecode;
 use Encode;
-use List::MoreUtils qw/none/;
+use List::MoreUtils qw/none lastidx/;
 
 #--- I/O error ---#
 
@@ -132,8 +132,9 @@ foreach my $samp_acc (keys %$entries_r){
 }
 
 # status
-printf STDERR "Number of lat-long values edited: %i\n",
+printf STDERR "Number of lat-long values edited: %i\n\n",
   $ARGV{entry_edit_cnt};
+
 
 # updating entries
 update_db_entries($dbh, $entries_r, \%ARGV );
@@ -146,6 +147,19 @@ $dbh->disconnect or die $dbh->err;
 
 
 #--- Subroutines ---#
+
+sub debug_entries{
+  my $entries = shift or die "Provide hashref of entries\n";
+  foreach my $k (keys %$entries_r){
+    my @row;
+    if(defined $entries_r->{$k}{latitude} and defined $entries_r->{$k}{longitude}){
+      map{ $_ = '' unless defined $_ } values %{$entries_r->{$k}};
+      map{ push @row, $entries_r->{$k}{$_} } sort keys %{$entries_r->{$k}};
+      print join("|", @row), "\n";
+    }
+  }
+
+}
 
 =head2 update_db_entries
 
@@ -228,26 +242,51 @@ sub edit_lat_long{
       $entry_r->{longitude} = join(" ", $4, $2);
     }
     # simple numeric style
-    elsif($entry_r->{latitude_and_longitude} =~ 
-	  /^\D*?(-*\d+\.*\d*)\D*?([NSns])*[ \t:;,\/]\D*?(-*\d+\.*\d*)\D*?([NSns])*$/){
+    # elsif($entry_r->{latitude_and_longitude} =~ 
+    # 	  /^\D*?(-*\d+\.*\d*)\D*?[ \t:;,\/]\D*?(-*\d+\.*\d*)\D*?([NSns])*$/){
 
-      my @regex_vals = ($1, $2, $3, $4);
-      map{ $_ = '' unless defined $_ } @regex_vals;
-      $entry_r->{latitude} = join(" ", @regex_vals[0..1]);
-      $entry_r->{longitude} = join(" ", @regex_vals[2..3]);
-      }
+    #   my @regex_vals = ($1, $2);
+
+    #   # getting direction
+    #   my ($lat_dir, $long_dir) = ('','');
+    #   if( $entry_r->{latitude_and_longitude} =~ /\d\D*([NSns])/ ){
+    # 	$lat_dir = $1;
+    #   }
+    #   if( $entry_r->{latitude_and_longitude} =~ /\d\D*([EWew])/ ){
+    # 	$long_dir = $1;
+    #   }
+
+
+
+    #   map{ $_ = '' unless defined $_ } @regex_vals;
+    #   $entry_r->{latitude} = join(" ", @regex_vals[0..1]);
+    #   $entry_r->{longitude} = join(" ", @regex_vals[2..3]);
+    #   }
 
     ## lat-long DMS style
     elsif( $entry_r->{latitude_and_longitude} =~
-	   /(\D*?-*[\d.]+)\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*[ :;_\/]\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*?(-*[\d.]+)/ 
+	   /^\D*?(-*[\d.]+)\D*[ ,:;_\/]\D*?(-*[\d.]+)\D*$/ 
 	   or $entry_r->{latitude_and_longitude} =~ 
-	   /(\D*?-*[\d.]+)\D*?(-*[\d.]+)\D*[ :;_\/]\D*?(-*[\d.]+)\D*?(-*[\d.]+)/ 
+	   /^\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*[ ,:;_\/]\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*$/ 
 	   or $entry_r->{latitude_and_longitude} =~ 
-	   /(\D*?-*[\d.]+)\D*[ :;_\/]\D*?(-*[\d.]+)/ 
+	   /^\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*[ ,:;_\/]\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*?(-*[\d.]+)\D*$/ 
 	 ){
 	     
       # saving regex
       my @regex_vals = ($1, $2, $3, $4, $5, $6);
+      
+      # splitting regex so each side has even number of defined values
+      my $idx = lastidx { defined $_ } @regex_vals;
+      $idx += 1 if ($idx+1) % 2 != 0;  # round up if odd
+      my $mididx = int($idx / 2); 
+      @regex_vals = ( [@regex_vals[0..$mididx]],
+		      [@regex_vals[$mididx+1..$idx]] );
+      ## adding values not present
+      foreach my $x (@regex_vals){
+	for my $i (0..2){
+	  $x->[$i] = '' unless defined $x->[$i];
+	}
+      }
 
       # getting direction
       my ($lat_dir, $long_dir) = ('','');
@@ -258,9 +297,9 @@ sub edit_lat_long{
 	$long_dir = $1;
       }
 
-      map{ $_ = '' unless defined $_ } @regex_vals;
-      $entry_r->{latitude} = join(" ", @regex_vals[0..2], $lat_dir);
-      $entry_r->{longitude} = join(" ", @regex_vals[3..5], $long_dir);
+      #map{ $_ = '' unless defined $_ } @regex_vals;
+      $entry_r->{latitude} = join(" ", @{$regex_vals[0]}, $lat_dir);
+      $entry_r->{longitude} = join(" ", @{$regex_vals[1]}, $long_dir);
 
     }
     ## undef if entry is not numeric
@@ -275,9 +314,11 @@ sub edit_lat_long{
     }
     ## split failed; don't know why
     else{      
-      printf STDERR "WARNING: don't know how to parse lat-long value '%s' in sample '%s'\n",
+      printf STDERR "WARNING: don't know how to parse lat-long value '%s' in sample '%s'. ",
 	 $entry_r->{latitude_and_longitude}, $entry_r->{sample_accession};
-      die $!;
+      print STDERR "Making NULL\n";
+      $entry_r->{latitude} = undef;
+      $entry_r->{longitude} = undef;
     }
   }
 
@@ -383,12 +424,13 @@ sub interpret_lat_long{
   # just real number? assumed decimal
   if($value =~ /^\D*?(-*\d+\.*\d*)\D*$/){
     $decimal = $1;
+    $decimal *= -1 if $value =~ /\d+\D*[SWsw]/;
   }
   ## decimal with direction?
-  elsif($value =~ /^\D*?(-*\d+\.*\d*)\D*?([NSEWnsew])\D*$/){
-    my ($decimal, $dir) = ($1, $2);
-    $decimal *= -1 if $dir =~ /[SWsw]/;
-  }
+#  elsif($value =~ /^\D*?(-*\d+\.*\d*)\D*?([NSEWnsew])\D*$/){
+#    my ($decimal, $dir) = ($1, $2);
+#    $decimal *= -1 if $dir =~ /[SWsw]/;
+#  }
   # is DMS format?
   elsif($value =~ /\D*?(-*\d+\.*\d*)\D+?(-*\d+\.*\d*)(\D+?-*\d+\.*\d*)*/){
     my ($degrees, $minutes, $seconds) = ($1, $2, $3);
