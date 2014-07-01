@@ -6,7 +6,7 @@ use warnings;
 
 =head1 NAME
 
-SRAmetadb_edit_lat_long.pl -- editing latitude and longitude values in SRAmetadb
+SRAmetadb_edit_lat_long.pl -- editing latitude and longitude values in SRAmetadb (or other sqlite3 DB)
 
 =head1 VERSION
 
@@ -73,15 +73,16 @@ Print the usual program information
 
 =head1 DESCRIPTION
 
-Add/update a 'efetch' table
+Add/update a latitude and longitude columns
 in the SRAmetaDb from R package SRAdb.
+The script should also work for any other
+database with a table containing 3 columns
+for latitude, longitude, and latitude_and_longitude.
 
-This table contains all info returned from
-queries with esearch and efetch with
-SRA biosample accessions.
-
-The accessions are pulled from the SRAmetadb
-database using the '-sql' flag.
+The '-sql' and '-table' flags define which table(s)
+is is used to select the needed columns 
+(latitude, longitude, and latitude_and_longitude)
+and which table to update the values of those columns.
 
 =head1 AUTHOR
 
