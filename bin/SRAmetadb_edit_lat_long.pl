@@ -118,6 +118,7 @@ foreach my $samp_acc (keys %$entries_r){
   edit_lat_long($entries_r->{$samp_acc});
 }
 
+print Dumper %$entries_r; exit;
 
 # closing 
 $dbh->commit or die $dbh->err;
@@ -127,6 +128,7 @@ $dbh->disconnect or die $dbh->err;
 
 #--- Subroutines ---#
 
+
 =head2 edit_lat_long
 
 Top-level subroutine for editing lat-long.
@@ -135,39 +137,97 @@ Lat-long can include unicode.
 
 =cut
 
+#sub edit_lat_long{
+#  my $entry_r = shift or die "Provide hashref of entry\n";
+#  my $argv_r = shift;#
+
+#}
+
 sub edit_lat_long{
   my $entry_r = shift or die "Provide hashref of entry\n";
   my $argv_r = shift;
 
-  # determine what to do based on attributes defined
-  my ($latitude, $longitude);
-  ## if lat,long defined
+  # converting all entries lacking numerics to undef
+#  map{ $entry_r->{$_} = undef
+#	 if (! defined $entry_r->{$_}
+#	 and ! $entry_r->{$_} =~ /\d/) } qw/latitude_and_longitude
+#					   latitude
+#					   longitude/;
+
+#  print Dumper %$entry_r; exit;
+
+  # defined 
+  ## if lat,long defined: trying to get from lat_and_long
   if(defined $entry_r->{latitude_and_longitude} and
      ! defined $entry_r->{latitude} and
      ! defined $entry_r->{longitude} ){
-
-    # splitting
+ 
+    # editing lat-long to something split-able
+    ## converting ([NS]:[EW]) real_num:real_num notation
+    #$entry_r->{latitude_and_longitude} =~ s/\(([NS]):([EW])\)\s*($RE{num}{real})[ _:;\/]($RE{num}{real})/$3 $1,$4 $2/;
     ## adding comma after 'N' or 'S' designation
-    $entry_r->{latitude_and_longitude} =~ s/( +[NS](outh|orth)*) +(\d+)/$1, $2/;
-    my @lat_long = split /\s*[,_\/]+\s*/, $entry_r->{latitude_and_longitude}, 2;
-    if( scalar @lat_long == 2 ){
-      $latitude = interpret_lat_long(
-				     $lat_long[0], 
-				     dir => 'latitude'
-				    );
-      $longitude = interpret_lat_long(
-				      $lat_long[1], 
-				      dir => 'longitude'
-				     );      
+    #$entry_r->{latitude_and_longitude} =~ s/([NS](outh|orth)*) +(\d+)/$1, $3/;
+
+    # spliting
+    #my @lat_long = split /\s*[:;,_\/]+\s*/, $entry_r->{latitude_and_longitude}, 2;
+
+    ## split apparently successfull
+    # if( scalar @lat_long == 2 ){
+    #   $latitude = interpret_lat_long(
+    # 				     $lat_long[0], 
+    # 				     dir => 'latitude'
+    # 				    );
+    #   $longitude = interpret_lat_long(
+    # 				      $lat_long[1], 
+    # 				      dir => 'longitude'
+    # 				     );      
+    # }
+
+    
+    # regex
+    ## (N:W) style
+    if( $entry_r->{latitude_and_longitude} =~ 
+	/\(([NS]):([EW])\)\s*(-*$RE{num}{real})[ _:;\/](-*$RE{num}{real})/){
+      $entry_r->{latitude} = join(" ", $3, $1);
+      $entry_r->{longitude} = join(" ", $4, $2);
     }
+    # simple numeric style
+    elsif($entry_r->{latitude_and_longitude} =~ 
+	  /^\D*(-*$RE{num}{real})\D*?([NSns])*[ \t:;,\/]\D*(-*$RE{num}{real})\D*?([NSns])*/){
+      my @regex_vals = ($1, $2, $3, $4);
+      map{ $_ = '' unless defined $_ } @regex_vals;
+      $entry_r->{latitude} = join(" ", @regex_vals[0..1]);
+      $entry_r->{longitude} = join(" ", @regex_vals[2..3]);
+      }
+    ## lat-long DMS style
+    elsif( $entry_r->{latitude_and_longitude} =~
+	   /\D*(-*$RE{num}{real})\D+(-*$RE{num}{real})(\D+-*$RE{num}{real})*\D*?([NSns])*\s*[ :;_\/]+\s*\D*(-*$RE{num}{real})\D+(-*$RE{num}{real})(\D+-*$RE{num}{real})*\D*?([EWew])*/){
+      my @regex_vals = ($1, $2, $3, $4, $5, $6, $7, $8);
+      map{ $_ = '' unless defined $_ } @regex_vals;
+      $entry_r->{latitude} = join(" ", @regex_vals[0..3]);
+      $entry_r->{longitude} = join(" ", @regex_vals[4..7]);
+    }
+    ## undef if entry is not numeric
+    elsif( $entry_r->{latitude_and_longitude} =~ /^\D*$/ ){
+      $entry_r->{latitude} = undef;
+      $entry_r->{longitude} = undef;
+    }
+    ## undef if entry just has 1 numeric 
+    elsif( $entry_r->{latitude_and_longitude} =~ /^\D*$RE{num}{real}\D*$/) {
+      $entry_r->{latitude} = undef;
+      $entry_r->{longitude} = undef;
+    }
+    ## split failed; don't know why
     else{
-      printf STDERR "ERROR: lat-long split did not work for %s\n",
+      printf STDERR "ERROR: don't know how to parse lat-long value '%s'\n",
 	 $entry_r->{latitude_and_longitude};
       die $!;
     }
   }
-  ## if lat-and-long defined
-  elsif(defined $entry_r->{latitude} or
+  
+  ## if lat or long defined
+  my ($latitude, $longitude);
+  if(defined $entry_r->{latitude} or
      defined $entry_r->{longitude} ){
 
     # getting lat-long from just lat or long
@@ -196,10 +256,15 @@ sub edit_lat_long{
   }
   ## else ?
   else{
-    print Dumper $entry_r;
-    die "Internal ERROR!\n";
+    printf STDERR "WARNING: could not determine decimal lat-long for %s\n",
+      $entry_r->{sample_accession};
+    map{ $entry_r->{$_} = undef } qw/latitude_and_longitude latitude longitude/;
   }
-  
+
+
+  # reassigning lat and long
+  $entry_r->{latitude} = $latitude;
+  $entry_r->{longitude} = $longitude;
 }
 
 
@@ -212,33 +277,30 @@ be converted from DMS format to decimal.
 =cut 
 
 sub interpret_lat_long{
-  my $value = shift or die $! "Provide latitude or longitude value\n";
+  my $value = shift or die "Provide latitude or longitude value\n";
   my $kwargs = @_;
 
 
-  # is decimal?
-  ## just real number?
-  if($value =~ /.*?($RE{num}{real})\s*/){
-    return $1;
+  my $decimal;
+  # just real number? assumed decimal
+  if($value =~ /^\D*(-*$RE{num}{real})\D*/){
+    $decimal = $1;
   }
-
   ## decimal with direction?
-  if($value =~ /.*?($RE{num}{real})\s*([NSEWnsew])/){
-    my ($dec, $dir) = ($1, $2);
-    $1 *= -1 if $dir =~ /[SWsw]/;
-    return $dec;
+  elsif($value =~ /^\D*(-*$RE{num}{real})\D*([NSEWnsew])\D*/){
+    my ($decimal, $dir) = ($1, $2);
+    $decimal *= -1 if $dir =~ /[SWsw]/;
   }
-
-
   # is DMS format?
-  ## DMS with spacing or acii character?
-  if($value =~ /\p{L}\p{M}*/){
-    
+  elsif($value =~ /\D*(-*$RE{num}{real})\D+(-*$RE{num}{real})(\D+-*$RE{num}{real})*\D*([NSWEnswe])*/){
+    my $decimal = DMS_to_decimal($1, $2, $3, $4);
+  }
+  # don't know what to do
+  else{
+    die "Don't know how to parse lat or long value: '$value'\n";
   }
 
-  ## DMS with unicode?
-
-
+  return $decimal;
 }
 
 =head2 DMS_to_decimal
@@ -248,6 +310,8 @@ converting lat-long from degree-min-sec to decimal
 =cut
 
 sub DMS_to_decimal{
+#  map{ die "negative: $_" if $_ =~ /-/ } @_;
+  
   my $degrees = shift or die "Provide degrees\n";
   my $minutes = shift;
   $minutes = 0 unless defined $minutes;
@@ -257,14 +321,24 @@ sub DMS_to_decimal{
   $direction = 'N' unless defined $direction;
 
 
+  # checking that degrees, minutes, seconds are numeric
+  foreach my $x ($degrees, $minutes, $seconds){
+    die "ERROR: value '$_' does not contain a real number\n"
+      unless $x =~ /-*$RE{num}{real}/;
+    $x = s/\D*(-*$RE{num}{real})\D*/$1/;
+  }
+
   # calc decimal
   my $decimal = $degrees + ($minutes / 60) + ($seconds / 3600);
 
-  $decimal *= -1 if $direction =~ /^\s*[SWsw]\s*$/;
+  $decimal *= -1 if $direction =~ /^\s*[SWsw]/;
 
   #print Dumper $decimal; exit;
   return $decimal;
 }
+
+
+
 
 
 =head2 find_lat_or_long
