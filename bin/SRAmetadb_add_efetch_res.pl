@@ -147,9 +147,6 @@ my $samp_acc_r = get_db_samp_acc($dbh, \%ARGV);
 # calling esearch/efetch
 my $tbl_r = esearch_efetch($samp_acc_r, \%ARGV);
 
-# editing lat-long
-edit_lat_long($tbl_r) unless $ARGV{'--lat_long_edit'};
-
 
 # adding efetch entries to database
 ## getting list of tables
@@ -180,65 +177,6 @@ $dbh->disconnect or die $dbh->err;
 
 
 #--- Subroutines ---#
-
-=head2 edit_lat_long
-
-Try to properly format latitude and longitude
-
-=cut
-
-sub edit_lat_long{
-  my $tbl_r = shift or die "Provide hashref of entries\n";
-
-  print Dumper $tbl_r; exit;
-
-  #return $field, $value unless 
-  #  defined $field and defined $value;
-
-  # general formating of lat-long values
-  # if( $field =~ /latitude/ or $field =~ /longitude/
-  #     or $field =~ /lat.+long*/ ){
-  #   $value =~ s/ +[NSEW]//gi;  # removing any directional characters    
-  #   $value =~ s/ +DD//;
-    
-  #   # more editing
-  #   $value =~ s/[)']+$//g if defined $value;
-
-
-  #   # both values 
-  #   if( $field =~ /latitude.+longitude/ or
-  # 	$field =~ /lat_+long*/ ){
-
-  #   }
-  #   elsif( $field =~ /latitude/ or $field =~ /longitude/ ){
-
-  #   }
-    
-
-  #   # if nothing return 
-  #   return $value unless defined $value;        
-  # }
-}
-
-
-sub DMS_to_decimal{
-  my %h = @_;
-  my $degree = exists $h{degree} ? $h{degree} : 0;
-  my $minute = exists $h{minute} ? $h{minute} : 0;
-  my $second = exists $h{second} ? $h{second} : 0;
-  my $direction = exists $h{direction} ? $h{direction} : 'N';
-  
-
-  # calc decimal
-  my $dec = $degree + ($minute / 60) + ($second / 3600);
-
-  $dec *= -1 if $direction =~ /[SW]/i;
-   
-  #print Dumper $dec; exit;
-  return $dec;
-}
-
-
 
 =head2 add_efetch_entries
 
@@ -558,8 +496,8 @@ sub parse_efetch_text{
 	$cat =~ tr/A-Z/a-z/;
 	
 	# combining certain attributes (reducing repetitive fields)
-	#($cat, $words{$k}) = edit_lat_long($cat, $words{$k})
-	#  if $argv_r->{'--lat_long_edit'};
+	($cat, $words{$k}) = edit_lat_long($cat, $words{$k})
+	  if $argv_r->{'--lat_long_edit'};
 
 	# adding to entries
 	if(ref $cat eq "ARRAY"){
@@ -593,7 +531,7 @@ Try to properly format latitude and longitude
 
 =cut
 
-sub edit_lat_long_OLD{
+sub edit_lat_long{
   my $field = shift;
   my $value = shift;
 
@@ -606,65 +544,107 @@ sub edit_lat_long_OLD{
     $value =~ s/ +[NSEW]//gi;  # removing any directional characters    
     $value =~ s/ +DD//;
     
+    # unicode decode
+    $value = unidecode($value);
+
     # more editing
     $value =~ s/[)']+$//g if defined $value;
-
-
-    # both values 
-    if( $field =~ /latitude.+longitude/ or
-	$field =~ /lat_+long*/ ){
-#      my ($lat, $long) = DMS_
-
-    }
-    elsif( $field =~ /latitude/ or $field =~ /longitude/ ){
-
-    }
-    
 
     # if nothing return 
     return $value unless defined $value;        
   }
   
   # latitude and longitude
- # if( $field =~ /latitude.+longitude/ or
- #     $field =~ /lat_+long*/ ){
- #   $value =~ s/^\s+//;
- #   $value =~ s/\s+$//;
-
-    
+  if( $field =~ /latitude.+longitude/ or
+      $field =~ /lat_+long*/ ){
+    $value =~ s/^\s+//;
+    $value =~ s/\s+$//;
 
     # split to lat & long
-#    my @tmp = split /\s*[ _,/]\s*/, $value;
+    my @tmp = split /\s*[ _,]\s*/, $value;
 
     # conversion if needed
-#    @tmp = map{ DMS_to_decimal($_) } @tmp;
-#    map{ s/.*?(-*[\d.]+).*/$1/ } @tmp;
+    @tmp = map{ DMS_to_decimal($_) } @tmp;
+    map{ s/.*?(-*[\d.]+).*/$1/ } @tmp;
 
     # return
- #   if(scalar @tmp == 2){   # if correctly split lat-long
-  #    return ['latitude', 'longitude'], \@tmp; 
-  #  }
-  #  else{
-  #    return $field, $value;
-  #  }
-#  }
-#  elsif( $field =~ /latitude/ ){
-#    # conversion if needed
-#    $value = DMS_to_decimal($value);
-#    $value =~ s/.*?(-*[\d.]+).*/$1/;
+    if(scalar @tmp == 2){   # if correctly split lat-long
+      return ['latitude', 'longitude'], \@tmp; 
+    }
+    else{
+      return $field, $value;
+    }
+  }
+  elsif( $field =~ /latitude/ ){
+    # conversion if needed
+    $value = DMS_to_decimal($value);
+    $value =~ s/.*?(-*[\d.]+).*/$1/;
 
-#    return 'latitude', $value;
-#  }
- # elsif( $field =~ /longitude/ ){
- #   # conversion if needed
-  #  $value = DMS_to_decimal($value);
-   # $value =~ s/.*?(-*[\d.]+).*/$1/;
+    return 'latitude', $value;
+  }
+  elsif( $field =~ /longitude/ ){
+    # conversion if needed
+    $value = DMS_to_decimal($value);
+    $value =~ s/.*?(-*[\d.]+).*/$1/;
 
-   # return 'longitude', $value;
-  #}
+    return 'longitude', $value;
+  }
 }
 
 
+=head2 DMS_to_decimal
+
+converting lat-long from degree-min-sec to decimal
+
+=cut
+
+sub DMS_to_decimal{
+  my $value = shift or die "Provide lat-long, lat, or long string\n";
+
+  # return if already in decimal format
+  return $value if $value =~ /[\d.]+/;  
+
+#  my $test = "19°25<U+0092>|85°04<U+0092>";
+#  my $test2 = "50°56′02″"; 
+#  $test = unidecode($test);
+#  $test2 = unidecode($test2); 
+#  print Dumper $test, $test2; exit;
+#  $value = $test2;
+
+  # initialize
+  my $degree;
+  my ($min,$sec) = (0,0);
+
+  # degree
+  if( $value =~ /(\d+)A*deg/ ){
+    $degree = $1;
+  }
+  else{   # can't find degree, returning value
+    return $value;
+  }
+
+  # min
+  if($value =~ /(\d+)a2/){
+    $min = $1;
+  }
+  elsif($value =~ /deg(\d+)/){   # assuming numeric after degree is min
+    $min = $1;
+  }
+
+  # sec
+  if($value =~ /(\d+)a3/){
+    $sec = $1;
+  }
+  elsif($value =~ /a2(\d+)/){   # assumning numeric after min is sec
+    $sec = $1;   
+  }
+
+  # calc decimal
+  my $dec = $degree + ($min / 60) + ($sec / 3600);
+
+  #print Dumper $dec; exit;
+  return $dec;
+}
 
 
 
@@ -682,7 +662,7 @@ sub get_db_samp_acc{
   my $sql = $argv_r->{-sql};
 
   # debug
-  $sql .= " limit 100";
+#  $sql .= " limit 100";
 
   # query
   print STDERR "sql: '$sql'\n\n" unless $argv_r->{'--quiet'};
