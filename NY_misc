@@ -15,6 +15,12 @@ Options:
   --version     Show version.
 
 Commands:
+  96well            -- well_IDs for a 96-well plate layout
+  fasta_unwrap      -- unwrap a fasta file
+  filter_seq        -- filter sequences
+  geo_coord_convert -- convert geographic coordinates 
+  rInstallPackages  -- install r packages
+  rnammer_filt      -- filter rnammer results
 
 Description:
   This is the main command to call various scripts associated with this project.
