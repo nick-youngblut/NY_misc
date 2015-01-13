@@ -1,9 +1,9 @@
-[B#!/usr/bin/env python
+#!/usr/bin/env python
 
 """
 primerBarcodeList.py: listing primer barcode combinations for dual indexed primers
 
-Us0;95;cage:
+Usage:
   primerBarcodeList.py [options]
   primerBarcodeList.py -h | --help
   primerBarcodeList.py --version
@@ -15,10 +15,12 @@ Options:
   --version    Show version.
 
 Description:
-  Make a table of pairwise combinations of primers based on excel table of forward
-  and reverse primers (dual-indexed Illumina primers).
-  This is useful for a making an 'index' file associating primer indices with samples.
-  By default, the input will be an excel file in the 'data' directory in the app directory structure.
+  Make a table of pairwise combinations of primers based on excel table
+    of forward and reverse primers (dual-indexed Illumina primers).
+  This is useful for a making an 'index' file associating primer indices
+    with samples.
+  By default, the input will be an excel file in the 'data'
+    directory in the app directory structure.
 """
 
 from docopt import docopt
