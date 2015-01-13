@@ -18,7 +18,8 @@ Commands:
   96well            -- well_IDs for a 96-well plate layout
   fasta_unwrap      -- unwrap a fasta file
   filter_seq        -- filter sequences
-  geo_coord_convert -- convert geographic coordinates 
+  geo_coord_convert -- convert geographic coordinates
+  primerBarcodeList -- make a table of dual-indexed Illumina primers
   rInstallPackages  -- install r packages
   rnammer_filt      -- filter rnammer results
 
