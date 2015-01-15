@@ -9,12 +9,12 @@ Usage:
   fasta_unwrap.py --version
 
 Options:
-  -             Fasta from STDIN
+  <fasta>       Fasta file name ('-' if from STDIN).
   -h --help     Show this screen.
   --version     Show version.
-  --drifting    Drifting mine.
-Arguments:
-  <fasta>       fasta file name (STDIN if not given)
+
+Description:
+  Simply unwrap a hard-wrapped fasta file
 """
 
 from docopt import docopt
@@ -26,12 +26,12 @@ import sys
 import fileinput
 import re
 
+
 # IO error
 if args['<fasta>'] is None:
     sys.stderr.write('Provide fasta via arg or STDIN')
     sys.stderr.write(__doc__)
     sys.exit()
-
 
 
 if args['<fasta>'] == '-':
@@ -41,7 +41,12 @@ else:
 
 
 # parsing fasta
-fasta = dict()
-tmpkey = ''
+line_cnt = 0
 for line in inf:
-    print line.rstrip()
+    line_cnt += 1
+    if line.startswith('>'):
+        if line_cnt > 1:
+            print ''
+        sys.stdout.write(line)
+    else:
+        sys.stdout.write(line.rstrip())
