@@ -26,6 +26,9 @@ import sys
 import fileinput
 import re
 
+# fixing broken pipe error
+from signal import signal, SIGPIPE, SIG_DFL
+signal(SIGPIPE,SIG_DFL) 
 
 # IO error
 if args['<fasta>'] is None:
