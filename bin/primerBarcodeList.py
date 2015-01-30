@@ -10,6 +10,7 @@ Usage:
 
 Options:
   -i=<i>       Excel file with barcodes. Default=data/indexed_primers/ndexed_V4-V5_primers_db.xlsx
+  --sql=<q>    Filter barcode table with an sql statement. [default: select * from df]
   --xlsx=<x>   Output as excel file. File written to '--xlsx' 
   -h --help    Show this screen.
   --version    Show version.
@@ -21,18 +22,28 @@ Description:
     with samples.
   By default, the input will be an excel file in the 'data'
     directory in the app directory structure.
+
+  Sql statements can be used to filter the table to just certain barcode combinations.
+
+  The ATGC content of each barcode pair (absolute counts & percent of length) will also be written. 
 """
 
+# import 
 from docopt import docopt
 import sys,os
-import pandas as pd
 import re 
 import string
+from collections import Counter
+import pandas as pd
+import pandasql
 
+
+# default database location
 scriptDir = os.path.dirname(__file__)
 dataDir = os.path.join(scriptDir, '../data/indexed_primers/indexed_V4-V5_primers_db.xlsx')
 
 
+# functions
 def wells96(n=96):
     """Get well_IDs for a 96-well plate. Returns a list of well IDs
     Args:
@@ -43,8 +54,41 @@ def wells96(n=96):
     well_IDs = [''.join([x,str(y)]) for (x,y) in zip(letters, nums)]
 
     return well_IDs[:n]
+
+
+def sqlFilter(df, sql):
+    """Filtering pandas dataframe using sql.
+    Args:
+    df -- dataframe object
+    sql -- sql statement
+    Return:
+    dataframe object
+    """
+    return pandasql.sqldf(sql, locals())
+
+
+def _ATGC_Counter(l):    
+    c = Counter(l)
+    return {x:c[x] for x in list('ATGC')}
     
-                
+def add_ATGC_counts(df):
+    """Adding colums containing ATGC counts
+    Args:
+    df -- pandas dataframe
+    """
+    # adding counts
+    barcodes = [x + y for (x,y) in zip(df.ix[:,'fwd_barcode'],df.ix[:,'rev_barcode'])]
+    counts = [_ATGC_Counter(list(x)) for x in barcodes]
+    df = pd.concat([df, pd.DataFrame(counts)], axis=1)
+    # also adding percentages
+    barcode_lens = [len(x) for x in barcodes]
+
+    for let in list('ATGC'):
+        df[let + '_perc'] = df[let] / barcode_lens * 100
+
+    return df
+
+    
 def main(args):
     # input
     if not args['-i']:
@@ -73,8 +117,6 @@ def main(args):
             rev_barcode_row = df_rev.iloc[i]
             for ii in xrange(df_fwd.shape[0]):
                 fwd_barcode_row = df_fwd.iloc[ii]
-
-                #print '{}\t{}'.format(fwd_barcode_row.INDEX, rev_barcode_row.INDEX)
                 
                 primerFR_ID_total += 1
                 primerFR_ID_byPlate += 1
@@ -92,8 +134,15 @@ def main(args):
     res['plate'] = res['plate'].astype(int)
     res['primerFR_ID_byPlate'] = res['primerFR_ID_byPlate'].astype(int)
     res['primerFR_ID_total'] = res['primerFR_ID_total'].astype(int)
+
+
+    # filtering via sql
+    res = sqlFilter(res, args['--sql'])
+
+    # adding A,T,G,C counts to table
+    res = add_ATGC_counts(res)
     
-                
+    
     # output
     if args['--xlsx']:
         writer = pd.ExcelWriter(args['--xlsx'])
