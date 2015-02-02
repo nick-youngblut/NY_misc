@@ -64,8 +64,20 @@ def sqlFilter(df, sql):
     Return:
     dataframe object
     """
-    return pandasql.sqldf(sql, locals())
+    df = pandasql.sqldf(sql, locals())
 
+    # check selection
+    err_msg = 'ERROR: No rows selected by --sql'
+    try:
+        df.shape
+    except AttributeError:
+        sys.exit(err_msg)
+    if df.shape[0] == 0:
+        sys.exit(err_msg)
+
+    # return
+    return df
+        
 
 def _ATGC_Counter(l):    
     c = Counter(l)
@@ -130,18 +142,22 @@ def main(args):
                                                 fwd_barcode,
                                                 rev_barcode]
 
-    # table edit
+
+    # table formatting
     res['plate'] = res['plate'].astype(int)
     res['primerFR_ID_byPlate'] = res['primerFR_ID_byPlate'].astype(int)
     res['primerFR_ID_total'] = res['primerFR_ID_total'].astype(int)
-
-
+                
     # filtering via sql
     res = sqlFilter(res, args['--sql'])
-
+    
     # adding A,T,G,C counts to table
     res = add_ATGC_counts(res)
-    
+
+    # table formatting (again)
+    res['plate'] = res['plate'].astype(int)
+    res['primerFR_ID_byPlate'] = res['primerFR_ID_byPlate'].astype(int)
+    res['primerFR_ID_total'] = res['primerFR_ID_total'].astype(int)
     
     # output
     if args['--xlsx']:
