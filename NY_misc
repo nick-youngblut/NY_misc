@@ -5,11 +5,12 @@ NY_misc: scripts from the Island of Lost Scripts
 
 Usage:
   NY_misc [options] <command> [<args>...]
+  NY_misc -p <perl_command>
   NY_misc -h | --help
   NY_misc --version
 
 Options:
-  -p --perldoc  Get perldoc of command.
+  -p --perldoc  Get perldoc of Perl command.
   -h --help     Show this screen.
   --version     Show version.
 
