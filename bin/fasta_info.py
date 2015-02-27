@@ -18,6 +18,7 @@ Options:
   --sl            Print length of each sequence.
   --sgc           Print mean G+C of each sequence.
   --sep=<s>       Output separator. [default: \t]
+  --header        Print table header.
   -v --version    Show version.
   -h --help       Show this screen.
 """
@@ -51,22 +52,23 @@ def main(uargs):
 
 
     # header
-    tblHeader = []
-    if uargs['--fn']:
-        tblHeader.append('file_name')
-    if uargs['--tn']:
-        tblHeader.append('total_sequences')
-    if uargs['--tl']:
-        tblHeader.append('total_seq_length')
-    if uargs['--tgc']:
-        tblHeader.append('total_GC')
-    if uargs['--sn']:
-        tblHeader.append('seq_name')
-    if uargs['--sl']:
-        tblHeader.append('seq_length')
-    if uargs['--sgc']:
-        tblHeader.append('seq_GC')        
-    print uargs['--sep'].join(tblHeader)
+    if uargs['--header']:
+        tblHeader = []
+        if uargs['--fn']:
+            tblHeader.append('file_name')
+        if uargs['--tn']:
+            tblHeader.append('total_sequences')
+        if uargs['--tl']:
+            tblHeader.append('total_seq_length')
+        if uargs['--tgc']:
+            tblHeader.append('total_GC')
+        if uargs['--sn']:
+            tblHeader.append('seq_name')
+        if uargs['--sl']:
+            tblHeader.append('seq_length')
+        if uargs['--sgc']:
+            tblHeader.append('seq_GC')        
+        print uargs['--sep'].join(tblHeader)
 
     # table body
     tbl = []
