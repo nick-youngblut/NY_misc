@@ -30,14 +30,18 @@ import sys,os
 from itertools import imap
 import screed
 import logging
+from time import gmtime, strftime
 
+
+def my_time():
+    return strftime('%H:%M:%S', gmtime())
 
 def openDB(fileName):
     """Opening screed DB; making if not already existing
     Args:
     fileName -- Name of sequence file or screedDB file
     """
-    logging.info('Making/opening screed database for: "{}"'.format(fileName))
+    logging.info('{}: Making/opening screed database for: "{}"'.format(my_time(), fileName))
     
     # making db if needed
     if not fileName.endswith('_screed'):
@@ -57,7 +61,7 @@ def openDB(fileName):
 
     
 def get_screed_key_intersect(screed1, screed2):
-    logging.info('Finding sequence intersection')
+    logging.info('{}: Finding sequence intersection'.format(my_time()))
    
     for x in reduce(set.intersection, imap(set, [screed1.keys(), screed2.keys()])):
         seq = screed1[x]
@@ -81,7 +85,7 @@ def rm_screed_db(fileName):
     if os.path.isfile(screedName):
         os.unlink(screedName)
 
-    logging.info('Removed screed db file: "{}"'.format(screedName))
+    logging.info('{}: Removed screed db file: "{}"'.format(my_time(), screedName))
 
 
 def main(uargs):
