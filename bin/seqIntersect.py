@@ -17,10 +17,13 @@ Options:
   -h --help      Show this screen.
 
 Description:
-  Intersection based on read names.
+  The intersection is determined on read names (everything before a ' ' in the name).
 
   The read files can be fastq or fasta formatted sequence files,
   or they can be screed databases (file names must end in '_screed').
+  If fastq or fasta files are provided, screed databases are created
+  from the files. By default, the screed databases will be deleted
+  after the intersecting sequences are written.
 
   The sequences from <read1> are written to STDOUT.
 """
