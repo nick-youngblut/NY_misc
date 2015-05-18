@@ -9,7 +9,9 @@ Usage:
   primerBarcodeList.py --version
 
 Options:
-  -i=<i>       Excel file with barcodes. Default=data/indexed_primers/ndexed_V4-V5_primers_db.xlsx
+  -i=<i>       Excel file with barcodes. 
+               [default: data/indexed_primers/Kozich_DualIndex_V4_primers.xlsx]
+  --list       List files in data/indexed_primers directory.
   --sql=<q>    Filter barcode table with an sql statement. [default: select * from df]
   --xlsx=<x>   Output as excel file. File written to '--xlsx' 
   -h --help    Show this screen.
@@ -36,11 +38,7 @@ import string
 from collections import Counter
 import pandas as pd
 import pandasql
-
-
-# default database location
-scriptDir = os.path.dirname(__file__)
-dataDir = os.path.join(scriptDir, '../data/indexed_primers/indexed_V4-V5_primers_db.xlsx')
+from glob import glob
 
 
 # functions
@@ -102,11 +100,22 @@ def add_ATGC_counts(df):
 
     
 def main(args):
-    # input
-    if not args['-i']:
-        args['-i'] = dataDir
-    df = pd.read_excel(args['-i'])
+    # list file
+    if args['--list']:
+        scriptDir = os.path.dirname(__file__)
+        dataDir = os.path.join(scriptDir, '../data/indexed_primers/*.xls*')
+        print '\n'.join(glob(dataDir))
+        sys.exit()
+
+    # reading in indexed primer file
+    try:
+        df = pd.read_excel(args['-i'])
+    except IOError:
+        scriptDir = os.path.dirname(__file__)
+        dataDir = os.path.join(scriptDir, '../' + args['-i'])
+        df = pd.read_excel(dataDir)
     df.columns = [x.upper() for x in df.columns]
+
     
     # IO assertions
     needed_cols = [x.upper() for x in ['plate', 'primer_direction', 'count', 'index']]
@@ -119,6 +128,7 @@ def main(args):
     # making table of pairwise primer combinations
     res = pd.DataFrame(columns=['plate', 'well_ID', 'primerFR_ID_byPlate',
                                 'primerFR_ID_total', 'fwd_barcode', 'rev_barcode'])
+
     primerFR_ID_total = 0
     for plate in set(df.PLATE):
         df_fwd = df.loc[(df.PLATE == plate) & (df.PRIMER_DIRECTION == 'fwd')]
@@ -132,6 +142,7 @@ def main(args):
                 
                 primerFR_ID_total += 1
                 primerFR_ID_byPlate += 1
+
                 well_ID = well_IDs[primerFR_ID_byPlate-1]
                 fwd_barcode = fwd_barcode_row.INDEX
                 rev_barcode = rev_barcode_row.INDEX
