@@ -10,8 +10,10 @@ Usage:
 
 Options:
   -u=<u>        Show notebooks for only one user.
+  -n=<n>        Number of parallel processes.
+                [default: 8]
   --ports=<p>   Port range to check (comma-separated). 
-                [default: 5000,30000]
+                [default: 5000,20000]
   --version     Show version.
   -h --help     Show this screen.
 
@@ -36,8 +38,34 @@ import re
 import string
 import json
 import urllib2
+import multiprocessing as mp
+import signal
+import errno
+from functools import wraps
+import numpy as np
 import pandas as pd
 
+
+class TimeoutError(Exception):
+    pass
+
+def timeout(seconds=10, error_message=os.strerror(errno.ETIME)):
+    def decorator(func):
+        def _handle_timeout(signum, frame):
+            raise TimeoutError(error_message)
+
+        def wrapper(*args, **kwargs):
+            signal.signal(signal.SIGALRM, _handle_timeout)
+            signal.alarm(seconds)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)
+            return result
+
+        return wraps(func)(wrapper)
+
+    return decorator
 
 
 def nb_mem(user=None):
@@ -84,22 +112,40 @@ def nb_mem(user=None):
     return df_mem
 
 
-def nb_port(ports):
-    df_nb = []
-    for port in xrange(ports[0],ports[1]+1):
+@timeout(1)
+def _get_sessions(port):
+    try:
+        url = 'http://127.0.0.1:{}/api/sessions'.format(port)
+        sessions = urllib2.urlopen(url)
+    except urllib2.URLError:
+        sessions = None   
+    return sessions
+
+
+@timeout(2)
+def _np_port(port):    
+    try:
+        sessions = _get_sessions(port)
+    except TimeoutError:
+        sys.stderr.write('port {}: timeout\n'.format(port))
         sessions = None
+
+    ret = []
+    if sessions:
         try:
-            url = 'http://127.0.0.1:{}/api/sessions'.format(port)
-            sessions = json.load(urllib2.urlopen(url))
-        except urllib2.URLError:
-            sessions = None
-	    
-        if sessions:
-            for sess in sessions:
-                kernel_ID = str(sess['kernel']['id'])
-                notebook_path = sess['notebook']['path']
-                df_nb.append([port, kernel_ID, notebook_path])
-	            
+            sessions = json.load(sessions)
+        except (AttributeError, ValueError) as e:
+            pass
+        for sess in sessions:
+            kernel_ID = sess['kernel']['id']
+            notebook_path = sess['notebook']['path']
+            ret = [port, kernel_ID, notebook_path]
+    return ret
+
+def nb_port(ports, nprocs=1):
+    p = mp.Pool(processes=int(nprocs))
+    df_nb = p.map(_np_port, range(ports[0],ports[1]+1))
+    df_nb = [x for x in df_nb if len(x) > 0]
     df_nb = pd.DataFrame(df_nb)
     if df_nb.shape[0] == 0:
         sys.exit('No notebooks found!')
@@ -107,10 +153,10 @@ def nb_port(ports):
     return df_nb
 
 
-def main(user, ports):
+def main(user, ports, nprocs=1):
     # making tables of notebook info
     df_mem = nb_mem(user=user)
-    df_nb = nb_port(ports=ports)
+    df_nb = nb_port(ports=ports, nprocs=nprocs)
     # joining tables
     df = pd.merge(df_nb, df_mem, on=['kernel_ID'], how='inner')
     df = df.sort(['memory_GB'], ascending=False)
@@ -125,5 +171,5 @@ def main(user, ports):
 if __name__ == '__main__':
     uargs = docopt(__doc__, version='0.1')
     ports = [int(x) for x in uargs['--ports'].split(',')]
-    main(user = uargs['-u'], ports=ports)
+    main(user=uargs['-u'], ports=ports, nprocs=uargs['-n'])
 
