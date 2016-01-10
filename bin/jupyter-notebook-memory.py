@@ -11,9 +11,9 @@ Usage:
 Options:
   -u=<u>        Show notebooks for only one user.
   -n=<n>        Number of parallel processes.
-                [default: 8]
+                [default: 10]
   --ports=<p>   Port range to check (comma-separated). 
-                [default: 5000,20000]
+                [default: 1000,32000]
   --version     Show version.
   -h --help     Show this screen.
 
@@ -37,7 +37,8 @@ import psutil
 import re
 import string
 import json
-import urllib2
+import requests
+from itertools import chain
 import multiprocessing as mp
 import signal
 import errno
@@ -113,38 +114,39 @@ def nb_mem(user=None):
 
 
 @timeout(1)
-def _get_sessions(port):
+def _get_requests(port):
     try:
         url = 'http://127.0.0.1:{}/api/sessions'.format(port)
-        sessions = urllib2.urlopen(url)
-    except urllib2.URLError:
-        sessions = None   
-    return sessions
+        reqs = requests.get(url)
+    except requests.ConnectionError:
+        reqs = None   
+    return reqs
 
 
-@timeout(2)
 def _np_port(port):    
     try:
-        sessions = _get_sessions(port)
+        reqs = _get_requests(port)
     except TimeoutError:
         sys.stderr.write('port {}: timeout\n'.format(port))
-        sessions = None
+        reqs = None
 
     ret = []
-    if sessions:
+    if reqs:
         try:
-            sessions = json.load(sessions)
+            reqs = json.loads(reqs.content)
         except (AttributeError, ValueError) as e:
             pass
-        for sess in sessions:
-            kernel_ID = sess['kernel']['id']
-            notebook_path = sess['notebook']['path']
-            ret = [port, kernel_ID, notebook_path]
+        for req in reqs:
+            kernel_ID = req['kernel']['id']
+            notebook_path = req['notebook']['path']
+            ret.append([port, kernel_ID, notebook_path])
     return ret
+
 
 def nb_port(ports, nprocs=1):
     p = mp.Pool(processes=int(nprocs))
     df_nb = p.map(_np_port, range(ports[0],ports[1]+1))
+    df_nb = chain.from_iterable(df_nb)
     df_nb = [x for x in df_nb if len(x) > 0]
     df_nb = pd.DataFrame(df_nb)
     if df_nb.shape[0] == 0:
