@@ -27,6 +27,9 @@ Description:
   To view a nicely formated version of the output table in bash:
   `jupyter-notebook-memory.py | column -t -s $'\\t' | less -S`
 
+  Note: notebooks may be on ports >32000 (up to ~65000), 
+  but this requests in odd url requests issues that take a lot longer.
+
 """
 
 from docopt import docopt
@@ -113,7 +116,7 @@ def nb_mem(user=None):
     return df_mem
 
 
-@timeout(1)
+@timeout(2)
 def _get_requests(port):
     try:
         url = 'http://127.0.0.1:{}/api/sessions'.format(port)
