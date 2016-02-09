@@ -10,9 +10,10 @@ Usage:
 
 Options:
   -i=<i>       Excel file with barcodes. 
-               [default: data/indexed_primers/Kozich_DualIndex_V4_primers.xlsx]
+               [Default: data/indexed_primers/Kozich_DualIndex_V4_primers.xlsx]
   --list       List files in data/indexed_primers directory.
-  --sql=<q>    Filter barcode table with an sql statement. [default: select * from df]
+  --sql=<q>    Filter barcode table with an sql statement. 
+               [Default: select * from df]
   --xlsx=<x>   Output as excel file. File written to '--xlsx' 
   -h --help    Show this screen.
   --version    Show version.
@@ -25,9 +26,11 @@ Description:
   By default, the input will be an excel file in the 'data'
     directory in the app directory structure.
 
-  Sql statements can be used to filter the table to just certain barcode combinations.
+  Sql statements can be used to filter the table to just certain barcode
+  combinations.
 
-  The ATGC content of each barcode pair (absolute counts & percent of length) will also be written. 
+  The ATGC content of each barcode pair (absolute counts & percent of length)
+  will also be written. 
 """
 
 # import 
@@ -87,7 +90,8 @@ def add_ATGC_counts(df):
     df -- pandas dataframe
     """
     # adding counts
-    barcodes = [x + y for (x,y) in zip(df.ix[:,'fwd_barcode'],df.ix[:,'rev_barcode'])]
+    barcodes = [x + y for (x,y) in zip(df.ix[:,'fwd_barcode'],
+                                       df.ix[:,'rev_barcode'])]
     counts = [_ATGC_Counter(list(x)) for x in barcodes]
     df = pd.concat([df, pd.DataFrame(counts)], axis=1)
     # also adding percentages
@@ -118,7 +122,8 @@ def main(args):
 
     
     # IO assertions
-    needed_cols = [x.upper() for x in ['plate', 'primer_direction', 'count', 'index']]
+    needed_cols = ['plate', 'primer_direction', 'count', 'index']
+    needed_cols = [x.upper() for x in needed_cols]
     for col in needed_cols:
         assert col in df.columns, 'ERROR: column "{}" not found'.format(col)
 
@@ -126,8 +131,10 @@ def main(args):
     well_IDs = wells96()
                 
     # making table of pairwise primer combinations
-    res = pd.DataFrame(columns=['plate', 'well_ID', 'primerFR_ID_byPlate',
-                                'primerFR_ID_total', 'fwd_barcode', 'rev_barcode'])
+    res = pd.DataFrame(columns=['plate', 'well_ID', 
+                                'location_16S_ID', 'ref_paper_ID',
+                                'primerFR_ID_byPlate','primerFR_ID_total', 
+                                'fwd_barcode', 'rev_barcode'])
 
     primerFR_ID_total = 0
     for plate in set(df.PLATE):
@@ -143,16 +150,33 @@ def main(args):
                 primerFR_ID_total += 1
                 primerFR_ID_byPlate += 1
 
+                # getting IDs
                 well_ID = well_IDs[primerFR_ID_byPlate-1]
                 fwd_barcode = fwd_barcode_row.INDEX
                 rev_barcode = rev_barcode_row.INDEX
+                try:
+                    fwd_16S_ID = fwd_barcode_row.LOCATION_16S_ID
+                    rev_16S_ID = rev_barcode_row.LOCATION_16S_ID
+                except AttributeError:
+                    fwd_16S_ID = 'NA'
+                    rev_16S_ID = 'NA'
+                x16S_ID = '__'.join([fwd_16S_ID, rev_16S_ID])
+                try:
+                    fwd_paper_ID = fwd_barcode_row.REF_PAPER_ID
+                    rev_paper_ID = rev_barcode_row.REF_PAPER_ID
+                except AttributeError:
+                    fwd_paper_ID = 'NA'
+                    rev_paper_ID = 'NA'
+                ref_paper_ID = '__'.join([fwd_paper_ID, rev_paper_ID])
                 
-                res.loc[primerFR_ID_total-1] = [plate, well_ID,
+                res.loc[primerFR_ID_total-1] = [plate, 
+                                                well_ID,
+                                                x16S_ID,
+                                                ref_paper_ID,
                                                 primerFR_ID_byPlate,
                                                 primerFR_ID_total,
                                                 fwd_barcode,
                                                 rev_barcode]
-
 
     # table formatting
     res['plate'] = res['plate'].astype(int)
