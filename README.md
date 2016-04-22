@@ -6,10 +6,10 @@ NY_misc: Miscellaneous tools
 
 ### Clone the repo
 
-~~
+```sh
 git clone https:github.com/nyoungb2/NY_misc.git
 cd NY_misc
-~~
+```
 
 ### set up paths; add bash completion
 
@@ -18,9 +18,9 @@ command to your PATH and add bash completion
 for viewing subcommands when typing <tab> (much like git).
 NOTE: you MUST run the command in the "NY_misc" directory.
 
-~~
+```sh
 echo 'source '`pwd`'/sourceMe' >> ~/.bashrc
-~~
+```
 
 # SUPPORT AND DOCUMENTATION
 
