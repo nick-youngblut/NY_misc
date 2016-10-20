@@ -59,7 +59,7 @@ To install:
       In Jupyter/Ipython: `%install_ext pushnote.py`
 
 To use:
-    `%pushnote This is a test message
+    `%pushnote This is a test message`
 """
     print(msg)
 
